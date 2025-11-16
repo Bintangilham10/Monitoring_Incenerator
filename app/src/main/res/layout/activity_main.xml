@@ -135,7 +135,7 @@
                                 android:layout_width="match_parent"
                                 android:layout_height="match_parent"
                                 android:background="#AA000000"
-                                android:text="Perangkat belum terhubung ke sensor pengukur berat sampah, silahkan hubungkan terlebih dahulu"
+                                android:text="Perangkat belum terhubung dengan sensor, klik disini untuk menghubungkan"
                                 android:textColor="#FFFFFF"
                                 android:textSize="14sp"
                                 android:gravity="center"

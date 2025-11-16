@@ -96,7 +96,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             override fun onDataReceived(text: String) {
-                binding.tvBeratSampah.text = "$text kg"
+                binding.tvBeratSampah.text = text.trim()   // HANYA angka
             }
         })
 
@@ -208,24 +208,39 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupUploadButton() {
         binding.btnUploadData.setOnClickListener {
-            val berat = binding.tvBeratSampah.text.toString()
+
+            val rawValue = binding.tvBeratSampah.text.toString().trim()
+
+            val beratValue = rawValue.toDoubleOrNull()
+
+            if (beratValue == null) {
+                Toast.makeText(this, "Data tidak valid / belum ada data dari sensor", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+
+            // Format timestamp WIB (jam:menit:detik)
+            val sdf = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault())
+            sdf.timeZone = java.util.TimeZone.getTimeZone("Asia/Jakarta")
+            val waktuWIB = sdf.format(java.util.Date())
 
             val data = hashMapOf(
-                "berat" to berat,
-                "timestamp" to System.currentTimeMillis()
+                "berat sampah" to beratValue,   // Number
+                "timestamp" to waktuWIB         // String (HH:mm:ss)
             )
 
             FirebaseFirestore.getInstance()
-                .collection("Data Sampah")
-                .add(data)
+                .collection("IoTDevices")
+                .document("sensor berat")
+                .set(data)
                 .addOnSuccessListener {
-                    Toast.makeText(this, "Berhasil upload!", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, "Data berhasil diupload!", Toast.LENGTH_SHORT).show()
                 }
-                .addOnFailureListener {
-                    Toast.makeText(this, "Gagal upload: ${it.message}", Toast.LENGTH_SHORT).show()
+                .addOnFailureListener { e ->
+                    Toast.makeText(this, "Gagal upload: ${e.message}", Toast.LENGTH_SHORT).show()
                 }
         }
     }
+
 
 
     /* ============================================
