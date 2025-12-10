@@ -19,14 +19,21 @@ import com.example.myapplication.databinding.ActivityMainBinding
 import com.example.myapplication.databinding.NavbarBinding
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.firestore.MetadataChanges
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
+import java.io.File
+
+import java.util.concurrent.TimeUnit
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private lateinit var navbarHelper: NavbarHelper
     private val db = FirebaseFirestore.getInstance()
-    private var machineListener: ListenerRegistration? = null
     private val machines = mutableListOf<Machine>()
+    private var machineListener: ListenerRegistration? = null
+
 
     // Bluetooth
     private lateinit var bluetoothHelper: BluetoothHelper
@@ -45,6 +52,10 @@ class MainActivity : AppCompatActivity() {
         setupMapButton()
         setupBeratSampahSection()
         setupUploadButton()
+        setupDailyExcelTask()
+        createTestCSV()
+
+
 
         /* ============================
                INIT BLUETOOTH
@@ -114,6 +125,41 @@ class MainActivity : AppCompatActivity() {
 
         listenMachinesFromFirestore()
     }
+
+    private fun createTestCSV() {
+        val testData = """
+        Tanggal,Nama Mesin,Status,User
+        10-01-2025,Mesin A,ON,Admin
+        10-01-2025,Mesin B,OFF,User1
+        10-01-2025,Mesin C,ON,Supervisor
+    """.trimIndent()
+
+        val file = File(filesDir, "data_mesin.csv")
+        file.writeText(testData)
+    }
+
+
+    private fun setupDailyExcelTask() {
+        val current = java.util.Calendar.getInstance()
+        val target = java.util.Calendar.getInstance()
+
+        target.set(java.util.Calendar.HOUR_OF_DAY, 12)
+        target.set(java.util.Calendar.MINUTE, 0)
+        target.set(java.util.Calendar.SECOND, 0)
+
+        if (target.before(current)) {
+            target.add(java.util.Calendar.DAY_OF_MONTH, 1)
+        }
+
+        val delay = target.timeInMillis - current.timeInMillis
+
+        val request = OneTimeWorkRequestBuilder<ExcelWorker>()
+            .setInitialDelay(delay, java.util.concurrent.TimeUnit.MILLISECONDS)
+            .build()
+
+        WorkManager.getInstance(this).enqueue(request)
+    }
+
 
     /* ======================================================
                BLUETOOTH — CEK PERMISSION
@@ -458,7 +504,20 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun handleNavigation(position: Int) {}
+    private fun handleNavigation(position: Int) {
+        when (position) {
+
+            0 -> { /* tetap di Home */ }
+
+            1 -> startActivity(Intent(this, DataActivity::class.java))
+
+            3 -> startActivity(Intent(this, UserActivity::class.java))
+
+        }
+    }
+
+
+
 
     private fun handleQRScan() {
         Toast.makeText(this, "Opening QR Scanner...", Toast.LENGTH_SHORT).show()
@@ -470,12 +529,19 @@ class MainActivity : AppCompatActivity() {
                    FIRESTORE LISTENER
     ============================================= */
 
+    /* ============================================
+         FIRESTORE — REALTIME LISTENER
+============================================ */
+
     private fun listenMachinesFromFirestore() {
         val container = binding.machineContainer
+
+        // Hapus listener lama agar tidak double
         machineListener?.remove()
 
-        machineListener = db.collection("Data Incenerator")
-            .addSnapshotListener { result, error ->
+        machineListener = db.collection("Data_Incenerator")
+            .addSnapshotListener(MetadataChanges.INCLUDE) { snapshot, error ->
+
                 if (error != null) {
                     Toast.makeText(this, "Gagal memuat data: ${error.message}", Toast.LENGTH_SHORT).show()
                     return@addSnapshotListener
@@ -484,7 +550,7 @@ class MainActivity : AppCompatActivity() {
                 container.removeAllViews()
                 machines.clear()
 
-                if (result == null || result.isEmpty) {
+                if (snapshot == null || snapshot.isEmpty) {
                     val emptyText = TextView(this).apply {
                         text = "Belum ada data mesin."
                         setTextColor(Color.GRAY)
@@ -497,7 +563,11 @@ class MainActivity : AppCompatActivity() {
                     return@addSnapshotListener
                 }
 
-                for (doc in result) {
+                for (doc in snapshot.documents) {
+
+                    // Debug: data dari CACHE atau SERVER?
+                    val source = if (doc.metadata.isFromCache) "CACHE" else "SERVER"
+                    android.util.Log.d("FIRESTORE_REALTIME", "${doc.id} dari $source")
 
                     val machineName = doc.id
                     val status = doc.getBoolean("Status") ?: false
@@ -513,12 +583,14 @@ class MainActivity : AppCompatActivity() {
                         longitude = coor?.second ?: 0.0
                     }
 
-                    machines.add(Machine(machineName, status, latitude, longitude, credential, mapLink))
+                    val machine = Machine(machineName, status, latitude, longitude, credential, mapLink)
+                    machines.add(machine)
 
                     val card = androidx.cardview.widget.CardView(this).apply {
                         radius = 20f
                         cardElevation = 6f
                         setCardBackgroundColor(Color.WHITE)
+
                         val params = LinearLayout.LayoutParams(
                             LinearLayout.LayoutParams.MATCH_PARENT,
                             LinearLayout.LayoutParams.WRAP_CONTENT
@@ -560,7 +632,7 @@ class MainActivity : AppCompatActivity() {
                                 .setTitle("Konfirmasi Hapus")
                                 .setMessage("Apakah Anda yakin ingin menghapus mesin \"$machineName\"?")
                                 .setPositiveButton("Ya") { dialog, _ ->
-                                    db.collection("Data Incenerator").document(machineName)
+                                    db.collection("Data_Incenerator").document(machineName)
                                         .delete()
                                         .addOnSuccessListener {
                                             Toast.makeText(
@@ -594,5 +666,6 @@ class MainActivity : AppCompatActivity() {
                 updateMachineLocationsList()
             }
     }
+
 
 }

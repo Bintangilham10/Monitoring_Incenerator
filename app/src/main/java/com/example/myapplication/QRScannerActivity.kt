@@ -17,6 +17,7 @@ import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.common.InputImage
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import com.google.firebase.auth.FirebaseAuth
 
 class QRScannerActivity : AppCompatActivity() {
 
@@ -110,7 +111,11 @@ class QRScannerActivity : AppCompatActivity() {
 
     // 🔹 Update status mesin di Firestore
     private fun updateMachineStatus(credential: String, status: Boolean) {
-        db.collection("Data Incenerator")
+
+        val uid = FirebaseAuth.getInstance().currentUser?.uid
+            ?: return Toast.makeText(this, "User tidak terautentikasi", Toast.LENGTH_SHORT).show()
+
+        db.collection("Data_Incenerator")
             .whereEqualTo("Credential", credential)
             .get()
             .addOnSuccessListener { documents ->
@@ -121,9 +126,16 @@ class QRScannerActivity : AppCompatActivity() {
                 }
 
                 for (doc in documents) {
-                    db.collection("Data Incenerator")
+
+                    val updateData = mapOf(
+                        "Status" to status,
+                        "userId" to uid,
+                        "updatedAt" to System.currentTimeMillis()
+                    )
+
+                    db.collection("Data_Incenerator")
                         .document(doc.id)
-                        .update("Status", status)
+                        .update(updateData)
                         .addOnSuccessListener {
                             val state = if (status) "Aktif" else "Non Aktif"
                             Toast.makeText(
@@ -131,7 +143,7 @@ class QRScannerActivity : AppCompatActivity() {
                                 "Status mesin '${doc.id}' diubah ke $state",
                                 Toast.LENGTH_SHORT
                             ).show()
-                            finish() // kembali ke MainActivity
+                            finish()
                         }
                         .addOnFailureListener {
                             Toast.makeText(this, "Gagal mengubah status", Toast.LENGTH_SHORT).show()
@@ -144,6 +156,7 @@ class QRScannerActivity : AppCompatActivity() {
                 dialogShown = false
             }
     }
+
 
     private val requestPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->

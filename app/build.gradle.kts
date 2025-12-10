@@ -50,6 +50,8 @@ dependencies {
     implementation("com.google.firebase:firebase-firestore")
     implementation("com.google.firebase:firebase-analytics")
     implementation("com.google.firebase:firebase-auth:24.0.1")
+    implementation("com.google.firebase:firebase-storage")
+    implementation("com.google.android.gms:play-services-recaptcha")
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
@@ -80,6 +82,12 @@ dependencies {
 
     implementation("com.google.android.gms:play-services-maps:18.2.0")
     implementation("com.google.android.gms:play-services-location:21.0.1")
+
+    implementation("androidx.work:work-runtime-ktx:2.9.0")
+
+    implementation("com.squareup.picasso:picasso:2.71828")
+
+
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

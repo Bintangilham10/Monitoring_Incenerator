@@ -58,7 +58,7 @@ class MapsActivity : AppCompatActivity(), OnMapReadyCallback {
     }
 
     private fun loadMachines() {
-        db.collection("Data Incenerator")
+        db.collection("Data_Incenerator")
             .get()
             .addOnSuccessListener { result ->
                 machines.clear()

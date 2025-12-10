@@ -81,20 +81,19 @@
 
     <!-- 🔹 Notification Button -->
     <LinearLayout
-        android:id="@+id/navNotification"
-        style="@style/BottomNavItem"
-        android:contentDescription="Notification">
+        android:id="@+id/navUser"
+        style="@style/BottomNavItem">
 
         <ImageView
-            android:id="@+id/iconNotification"
+            android:id="@+id/iconUser"
             style="@style/BottomNavIcon"
-            android:src="@drawable/ic_notification"
+            android:src="@drawable/baseline_person_24"
             app:tint="#777777" />
 
         <TextView
-            android:id="@+id/labelNotification"
+            android:id="@+id/labelUser"
             style="@style/BottomNavLabel"
-            android:text="Notifikasi" />
+            android:text="User" />
     </LinearLayout>
 
     <!-- 🔹 Profile Button -->

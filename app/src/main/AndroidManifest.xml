@@ -15,8 +15,6 @@
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
 
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-
 
     <application
         android:allowBackup="true"
@@ -54,6 +52,17 @@
             android:name=".AddMachineActivity"
             android:theme="@style/Theme.MyApplication"
             android:exported="false" />
+
+        <activity
+            android:name=".DataActivity"
+            android:theme="@style/Theme.MyApplication"
+            android:exported="false"/>
+
+        <activity
+            android:name=".UserActivity"
+            android:theme="@style/Theme.MyApplication"
+            android:exported="false"/>
+
 
         <activity
             android:name=".LoginActivity"

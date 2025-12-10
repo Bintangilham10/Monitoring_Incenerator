@@ -154,7 +154,7 @@ class AddMachineActivity : AppCompatActivity() {
             "mapLink" to mapLink
         )
 
-        db.collection("Data Incenerator")
+        db.collection("Data_Incenerator")
             .document(machineName)
             .set(machineData)
             .addOnSuccessListener {
