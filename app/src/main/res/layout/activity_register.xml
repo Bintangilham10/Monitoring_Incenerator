@@ -179,11 +179,11 @@
     </LinearLayout>
 
     <ImageView
-        android:layout_width="49dp"
-        android:layout_height="49dp"
+        android:layout_width="50dp"
+        android:layout_height="50dp"
         android:contentDescription="@string/logo_left_desc"
         android:src="@drawable/logosea"
-        tools:layout_editor_absoluteX="182dp"
+        tools:layout_editor_absoluteX="180dp"
         tools:layout_editor_absoluteY="47dp" />
 
     <ImageView
@@ -195,12 +195,12 @@
         tools:layout_editor_absoluteY="49dp" />
 
     <ImageView
-        android:layout_width="39dp"
-        android:layout_height="43dp"
+        android:layout_width="40dp"
+        android:layout_height="39dp"
         android:contentDescription="@string/logo_left_desc"
-        android:src="@drawable/logo_apk"
-        tools:layout_editor_absoluteX="238dp"
-        tools:layout_editor_absoluteY="49dp" />
+        android:src="@drawable/logoinacos"
+        tools:layout_editor_absoluteX="241dp"
+        tools:layout_editor_absoluteY="50dp" />
 
 
 </androidx.constraintlayout.widget.ConstraintLayout>
