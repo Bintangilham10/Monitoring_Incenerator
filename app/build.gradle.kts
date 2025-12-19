@@ -51,7 +51,8 @@ dependencies {
     implementation("com.google.firebase:firebase-analytics")
     implementation("com.google.firebase:firebase-auth:24.0.1")
     implementation("com.google.firebase:firebase-storage")
-    implementation("com.google.android.gms:play-services-recaptcha")
+    implementation("com.google.android.recaptcha:recaptcha:18.4.0")
+// Use 18.4.0 or newer
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
@@ -86,6 +87,8 @@ dependencies {
     implementation("androidx.work:work-runtime-ktx:2.9.0")
 
     implementation("com.squareup.picasso:picasso:2.71828")
+
+    implementation("androidx.cardview:cardview:1.0.0")
 
 
 

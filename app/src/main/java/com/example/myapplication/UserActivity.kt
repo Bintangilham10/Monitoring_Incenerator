@@ -18,11 +18,16 @@ class UserActivity : AppCompatActivity() {
     private lateinit var imgProfile: ImageView
     private lateinit var edtName: EditText
     private lateinit var tvCreatedAt: TextView
+    private lateinit var btnUploadPhoto: Button
+    private lateinit var btnSaveName: Button
 
     private val PICK_IMAGE = 100
     private var selectedImage: Uri? = null
 
-    private val user = FirebaseAuth.getInstance().currentUser
+    private val auth = FirebaseAuth.getInstance()
+    private val user = auth.currentUser
+    private val userEmail = user?.email
+
     private val db = FirebaseFirestore.getInstance()
     private val storage = FirebaseStorage.getInstance()
 
@@ -33,46 +38,103 @@ class UserActivity : AppCompatActivity() {
         imgProfile = findViewById(R.id.imgProfile)
         edtName = findViewById(R.id.edtName)
         tvCreatedAt = findViewById(R.id.tvCreatedAt)
+        btnUploadPhoto = findViewById(R.id.btnUploadPhoto)
+        btnSaveName = findViewById(R.id.btnSaveName)
 
-        val btnPhoto = findViewById<Button>(R.id.btnUploadPhoto)
-        val btnSaveName = findViewById<Button>(R.id.btnSaveName)
+        if (user == null || userEmail == null) {
+            Toast.makeText(this, "User belum login", Toast.LENGTH_SHORT).show()
+            finish()
+            return
+        }
 
         loadUserData()
 
-        btnPhoto.setOnClickListener { openGallery() }
+        btnUploadPhoto.setOnClickListener { openGallery() }
         btnSaveName.setOnClickListener { saveName() }
     }
 
+    /* ======================================
+                LOAD USER DATA
+       ====================================== */
     private fun loadUserData() {
-        val uid = user?.uid ?: return
+        val email = userEmail ?: return
 
-        db.collection("users").document(uid)
+        db.collection("User").document(email)
             .get()
             .addOnSuccessListener { doc ->
                 if (doc.exists()) {
-                    edtName.setText(doc.getString("name") ?: "")
+                    edtName.setText(doc.getString("username") ?: "")
 
-                    val url = doc.getString("photoUrl")
-                    if (!url.isNullOrEmpty()) {
-                        Picasso.get().load(url).into(imgProfile)
+                    val photoUrl = doc.getString("photoUrl")
+                    if (!photoUrl.isNullOrEmpty()) {
+                        Picasso.get().load(photoUrl).into(imgProfile)
                     }
+                } else {
+                    createInitialUserData()
                 }
             }
 
-        val creation = user?.metadata?.creationTimestamp ?: 0L
-        val date = SimpleDateFormat("dd MMMM yyyy", Locale.getDefault())
-            .format(Date(creation))
+        val creationTime = user?.metadata?.creationTimestamp ?: return
+        val date = SimpleDateFormat(
+            "dd MMMM yyyy",
+            Locale.getDefault()
+        ).format(Date(creationTime))
 
-        tvCreatedAt.text = "Tanggal dibuat: $date"
+        tvCreatedAt.text = "Akun dibuat: $date"
     }
 
+    /* ======================================
+           CREATE USER FIRST TIME
+       ====================================== */
+    private fun createInitialUserData() {
+        val email = userEmail ?: return
+
+        val data = hashMapOf(
+            "email" to email,
+            "username" to "",
+            "photoUrl" to "",
+            "createdAt" to Date()
+        )
+
+        db.collection("User").document(email).set(data)
+    }
+
+    /* ======================================
+              SAVE USERNAME
+       ====================================== */
+    private fun saveName() {
+        val email = userEmail ?: return
+        val username = edtName.text.toString().trim()
+
+        if (username.isEmpty()) {
+            Toast.makeText(this, "Nama tidak boleh kosong", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        db.collection("User").document(email)
+            .update("username", username)
+            .addOnSuccessListener {
+                Toast.makeText(this, "Nama berhasil disimpan", Toast.LENGTH_SHORT).show()
+            }
+            .addOnFailureListener {
+                Toast.makeText(this, "Gagal menyimpan nama", Toast.LENGTH_SHORT).show()
+            }
+    }
+
+    /* ======================================
+               PICK IMAGE
+       ====================================== */
     private fun openGallery() {
         val intent = Intent(Intent.ACTION_PICK)
         intent.type = "image/*"
         startActivityForResult(intent, PICK_IMAGE)
     }
 
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+    override fun onActivityResult(
+        requestCode: Int,
+        resultCode: Int,
+        data: Intent?
+    ) {
         super.onActivityResult(requestCode, resultCode, data)
 
         if (requestCode == PICK_IMAGE && resultCode == Activity.RESULT_OK) {
@@ -82,28 +144,25 @@ class UserActivity : AppCompatActivity() {
         }
     }
 
+    /* ======================================
+             UPLOAD PROFILE IMAGE
+       ====================================== */
     private fun uploadImage() {
+        val email = userEmail ?: return
         val uid = user?.uid ?: return
+        val uri = selectedImage ?: return
+
         val fileRef = storage.reference.child("profile/$uid.jpg")
 
-        selectedImage?.let { uri ->
-            fileRef.putFile(uri).addOnSuccessListener {
+        fileRef.putFile(uri)
+            .addOnSuccessListener {
                 fileRef.downloadUrl.addOnSuccessListener { downloadUrl ->
-                    db.collection("users").document(uid)
+                    db.collection("User").document(email)
                         .update("photoUrl", downloadUrl.toString())
                 }
             }
-        }
-    }
-
-    private fun saveName() {
-        val uid = user?.uid ?: return
-        val name = edtName.text.toString()
-
-        db.collection("users").document(uid)
-            .update("name", name)
-            .addOnSuccessListener {
-                Toast.makeText(this, "Nama berhasil disimpan", Toast.LENGTH_SHORT).show()
+            .addOnFailureListener {
+                Toast.makeText(this, "Upload foto gagal", Toast.LENGTH_SHORT).show()
             }
     }
 }

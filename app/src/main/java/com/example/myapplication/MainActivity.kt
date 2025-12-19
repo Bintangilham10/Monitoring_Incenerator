@@ -23,6 +23,9 @@ import com.google.firebase.firestore.MetadataChanges
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import java.io.File
+import android.view.View
+import androidx.cardview.widget.CardView
+
 
 import java.util.concurrent.TimeUnit
 
@@ -53,7 +56,6 @@ class MainActivity : AppCompatActivity() {
         setupBeratSampahSection()
         setupUploadButton()
         setupDailyExcelTask()
-        createTestCSV()
 
 
 
@@ -125,19 +127,6 @@ class MainActivity : AppCompatActivity() {
 
         listenMachinesFromFirestore()
     }
-
-    private fun createTestCSV() {
-        val testData = """
-        Tanggal,Nama Mesin,Status,User
-        10-01-2025,Mesin A,ON,Admin
-        10-01-2025,Mesin B,OFF,User1
-        10-01-2025,Mesin C,ON,Supervisor
-    """.trimIndent()
-
-        val file = File(filesDir, "data_mesin.csv")
-        file.writeText(testData)
-    }
-
 
     private fun setupDailyExcelTask() {
         val current = java.util.Calendar.getInstance()
@@ -242,10 +231,22 @@ class MainActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
-        machineListener?.remove()
-        machineListener = null
+
         try { bluetoothHelper.disconnect() } catch (_: Exception) {}
     }
+
+    override fun onStop() {
+        super.onStop()
+        machineListener?.remove()
+        machineListener = null
+    }
+
+    override fun onStart() {
+        super.onStart()
+        listenMachinesFromFirestore()
+    }
+
+
 
 
     /* ============================================
@@ -536,136 +537,109 @@ class MainActivity : AppCompatActivity() {
     private fun listenMachinesFromFirestore() {
         val container = binding.machineContainer
 
-        // Hapus listener lama agar tidak double
         machineListener?.remove()
 
         machineListener = db.collection("Data_Incenerator")
-            .addSnapshotListener(MetadataChanges.INCLUDE) { snapshot, error ->
+            .addSnapshotListener { snapshot, error ->
 
-                if (error != null) {
-                    Toast.makeText(this, "Gagal memuat data: ${error.message}", Toast.LENGTH_SHORT).show()
-                    return@addSnapshotListener
-                }
+                if (error != null || snapshot == null) return@addSnapshotListener
 
                 container.removeAllViews()
                 machines.clear()
 
-                if (snapshot == null || snapshot.isEmpty) {
-                    val emptyText = TextView(this).apply {
+                if (snapshot.isEmpty) {
+                    container.addView(TextView(this).apply {
                         text = "Belum ada data mesin."
                         setTextColor(Color.GRAY)
-                        textSize = 14f
                         gravity = Gravity.CENTER
-                        setPadding(0, 32, 0, 32)
-                    }
-                    container.addView(emptyText)
+                    })
                     updateMachineLocationsList()
                     return@addSnapshotListener
                 }
 
-                for (doc in snapshot.documents) {
-
-                    // Debug: data dari CACHE atau SERVER?
-                    val source = if (doc.metadata.isFromCache) "CACHE" else "SERVER"
-                    android.util.Log.d("FIRESTORE_REALTIME", "${doc.id} dari $source")
+                snapshot.documents.forEach { doc ->
 
                     val machineName = doc.id
                     val status = doc.getBoolean("Status") ?: false
-                    val credential = doc.getString("Credential") ?: ""
-                    val mapLink = doc.getString("mapLink") ?: ""
 
-                    var latitude = doc.getDouble("Latitude") ?: 0.0
-                    var longitude = doc.getDouble("Longitude") ?: 0.0
+                    android.util.Log.d(
+                        "REALTIME_STATUS",
+                        "$machineName = $status (cache=${doc.metadata.isFromCache})"
+                    )
 
-                    if (latitude == 0.0 && longitude == 0.0 && mapLink.isNotEmpty()) {
-                        val coor = Machine.extractCoordinatesFromMapLink(mapLink)
-                        latitude = coor?.first ?: 0.0
-                        longitude = coor?.second ?: 0.0
-                    }
+                    val machine = Machine(
+                        name = machineName,
+                        status = status,
+                        latitude = doc.getDouble("Latitude") ?: 0.0,
+                        longitude = doc.getDouble("Longitude") ?: 0.0,
+                        credential = doc.getString("Credential") ?: "",
+                        mapLink = doc.getString("mapLink") ?: ""
+                    )
 
-                    val machine = Machine(machineName, status, latitude, longitude, credential, mapLink)
                     machines.add(machine)
-
-                    val card = androidx.cardview.widget.CardView(this).apply {
-                        radius = 20f
-                        cardElevation = 6f
-                        setCardBackgroundColor(Color.WHITE)
-
-                        val params = LinearLayout.LayoutParams(
-                            LinearLayout.LayoutParams.MATCH_PARENT,
-                            LinearLayout.LayoutParams.WRAP_CONTENT
-                        )
-                        params.setMargins(0, 0, 0, 20)
-                        layoutParams = params
-                    }
-
-                    val innerLayout = LinearLayout(this).apply {
-                        orientation = LinearLayout.HORIZONTAL
-                        setPadding(20, 24, 20, 24)
-                        gravity = Gravity.CENTER_VERTICAL
-                    }
-
-                    val nameView = TextView(this).apply {
-                        text = machineName
-                        textSize = 16f
-                        setTextColor(Color.BLACK)
-                        layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-                    }
-
-                    val statusView = TextView(this).apply {
-                        text = if (status) "Aktif" else "Non Aktif"
-                        textSize = 14f
-                        setTextColor(Color.WHITE)
-                        setPadding(28, 12, 28, 12)
-                        background = resources.getDrawable(
-                            if (status) R.drawable.bg_status_active else R.drawable.bg_status_inactive,
-                            theme
-                        )
-                    }
-
-                    val deleteButton = android.widget.ImageView(this).apply {
-                        setImageResource(R.drawable.ic_trashbin)
-                        setColorFilter(Color.parseColor("#F44336"))
-                        setPadding(24, 12, 0, 12)
-                        setOnClickListener {
-                            AlertDialog.Builder(this@MainActivity)
-                                .setTitle("Konfirmasi Hapus")
-                                .setMessage("Apakah Anda yakin ingin menghapus mesin \"$machineName\"?")
-                                .setPositiveButton("Ya") { dialog, _ ->
-                                    db.collection("Data_Incenerator").document(machineName)
-                                        .delete()
-                                        .addOnSuccessListener {
-                                            Toast.makeText(
-                                                this@MainActivity,
-                                                "Mesin \"$machineName\" berhasil dihapus",
-                                                Toast.LENGTH_SHORT
-                                            ).show()
-                                        }
-                                        .addOnFailureListener {
-                                            Toast.makeText(
-                                                this@MainActivity,
-                                                "Gagal menghapus mesin: ${it.message}",
-                                                Toast.LENGTH_SHORT
-                                            ).show()
-                                        }
-                                    dialog.dismiss()
-                                }
-                                .setNegativeButton("Tidak") { dialog, _ -> dialog.dismiss() }
-                                .show()
-                        }
-                    }
-
-                    innerLayout.addView(nameView)
-                    innerLayout.addView(statusView)
-                    innerLayout.addView(deleteButton)
-
-                    card.addView(innerLayout)
-                    container.addView(card)
+                    container.addView(createMachineCard(machine))
                 }
 
                 updateMachineLocationsList()
             }
     }
+
+    private fun createMachineCard(machine: Machine): View {
+
+        val card = CardView(this).apply {
+            radius = 20f
+            cardElevation = 6f
+            setCardBackgroundColor(Color.WHITE)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { setMargins(0, 0, 0, 20) }
+        }
+
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(20, 24, 20, 24)
+        }
+
+        val nameView = TextView(this).apply {
+            text = machine.name
+            textSize = 16f
+            setTextColor(Color.BLACK)
+            layoutParams = LinearLayout.LayoutParams(
+                0,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                1f
+            )
+        }
+
+        val statusView = TextView(this).apply {
+            text = if (machine.status) "Aktif" else "Non Aktif"
+            setTextColor(Color.WHITE)
+            setPadding(28, 12, 28, 12)
+            background = resources.getDrawable(
+                if (machine.status)
+                    R.drawable.bg_status_active
+                else
+                    R.drawable.bg_status_inactive,
+                theme
+            )
+        }
+
+        layout.addView(nameView)
+        layout.addView(statusView)
+        card.addView(layout)
+
+        return card
+    }
+
+
+    private fun updateMachineStatus(machineName: String, newStatus: Boolean) {
+        db.collection("Data_Incenerator")
+            .document(machineName)
+            .update("Status", newStatus)
+    }
+
 
 
 }
