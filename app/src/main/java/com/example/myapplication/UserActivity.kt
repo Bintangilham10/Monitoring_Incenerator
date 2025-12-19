@@ -1,14 +1,11 @@
 package com.example.myapplication
 
-import android.app.Activity
 import android.content.Intent
-import android.net.Uri
 import android.os.Bundle
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.storage.FirebaseStorage
 import com.squareup.picasso.Picasso
 import java.text.SimpleDateFormat
 import java.util.*
@@ -16,30 +13,28 @@ import java.util.*
 class UserActivity : AppCompatActivity() {
 
     private lateinit var imgProfile: ImageView
-    private lateinit var edtName: EditText
+    private lateinit var tvFullName: TextView
+    private lateinit var tvUserId: TextView
+    private lateinit var tvLastLogin: TextView
     private lateinit var tvCreatedAt: TextView
-    private lateinit var btnUploadPhoto: Button
-    private lateinit var btnSaveName: Button
-
-    private val PICK_IMAGE = 100
-    private var selectedImage: Uri? = null
+    private lateinit var btnEditProfile: Button
 
     private val auth = FirebaseAuth.getInstance()
     private val user = auth.currentUser
     private val userEmail = user?.email
 
     private val db = FirebaseFirestore.getInstance()
-    private val storage = FirebaseStorage.getInstance()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_user)
 
         imgProfile = findViewById(R.id.imgProfile)
-        edtName = findViewById(R.id.edtName)
+        tvFullName = findViewById(R.id.tvFullName)
+        tvUserId = findViewById(R.id.tvUserId)
+        tvLastLogin = findViewById(R.id.tvLastLogin)
         tvCreatedAt = findViewById(R.id.tvCreatedAt)
-        btnUploadPhoto = findViewById(R.id.btnUploadPhoto)
-        btnSaveName = findViewById(R.id.btnSaveName)
+        btnEditProfile = findViewById(R.id.btnEditProfile)
 
         if (user == null || userEmail == null) {
             Toast.makeText(this, "User belum login", Toast.LENGTH_SHORT).show()
@@ -49,8 +44,11 @@ class UserActivity : AppCompatActivity() {
 
         loadUserData()
 
-        btnUploadPhoto.setOnClickListener { openGallery() }
-        btnSaveName.setOnClickListener { saveName() }
+        btnEditProfile.setOnClickListener {
+            // Navigate to edit profile screen (you'll need to create this)
+            val intent = Intent(this, EditProfileActivity::class.java)
+            startActivity(intent)
+        }
     }
 
     /* ======================================
@@ -63,7 +61,8 @@ class UserActivity : AppCompatActivity() {
             .get()
             .addOnSuccessListener { doc ->
                 if (doc.exists()) {
-                    edtName.setText(doc.getString("username") ?: "")
+                    val username = doc.getString("username") ?: "User Name"
+                    tvFullName.text = username
 
                     val photoUrl = doc.getString("photoUrl")
                     if (!photoUrl.isNullOrEmpty()) {
@@ -74,13 +73,23 @@ class UserActivity : AppCompatActivity() {
                 }
             }
 
+        // Set User ID (email)
+        tvUserId.text = email
+
+        // Set Last Login (current time)
+        val currentTime = SimpleDateFormat(
+            "yyyy-MM-dd HH:mm",
+            Locale.getDefault()
+        ).format(Date())
+        tvLastLogin.text = currentTime
+
+        // Set Account Created Date
         val creationTime = user?.metadata?.creationTimestamp ?: return
         val date = SimpleDateFormat(
-            "dd MMMM yyyy",
+            "MMMM dd, yyyy",
             Locale.getDefault()
         ).format(Date(creationTime))
-
-        tvCreatedAt.text = "Akun dibuat: $date"
+        tvCreatedAt.text = date
     }
 
     /* ======================================
@@ -91,78 +100,20 @@ class UserActivity : AppCompatActivity() {
 
         val data = hashMapOf(
             "email" to email,
-            "username" to "",
+            "username" to "User Name",
             "photoUrl" to "",
             "createdAt" to Date()
         )
 
         db.collection("User").document(email).set(data)
-    }
-
-    /* ======================================
-              SAVE USERNAME
-       ====================================== */
-    private fun saveName() {
-        val email = userEmail ?: return
-        val username = edtName.text.toString().trim()
-
-        if (username.isEmpty()) {
-            Toast.makeText(this, "Nama tidak boleh kosong", Toast.LENGTH_SHORT).show()
-            return
-        }
-
-        db.collection("User").document(email)
-            .update("username", username)
             .addOnSuccessListener {
-                Toast.makeText(this, "Nama berhasil disimpan", Toast.LENGTH_SHORT).show()
-            }
-            .addOnFailureListener {
-                Toast.makeText(this, "Gagal menyimpan nama", Toast.LENGTH_SHORT).show()
+                loadUserData() // Reload after creating
             }
     }
 
-    /* ======================================
-               PICK IMAGE
-       ====================================== */
-    private fun openGallery() {
-        val intent = Intent(Intent.ACTION_PICK)
-        intent.type = "image/*"
-        startActivityForResult(intent, PICK_IMAGE)
-    }
-
-    override fun onActivityResult(
-        requestCode: Int,
-        resultCode: Int,
-        data: Intent?
-    ) {
-        super.onActivityResult(requestCode, resultCode, data)
-
-        if (requestCode == PICK_IMAGE && resultCode == Activity.RESULT_OK) {
-            selectedImage = data?.data
-            imgProfile.setImageURI(selectedImage)
-            uploadImage()
-        }
-    }
-
-    /* ======================================
-             UPLOAD PROFILE IMAGE
-       ====================================== */
-    private fun uploadImage() {
-        val email = userEmail ?: return
-        val uid = user?.uid ?: return
-        val uri = selectedImage ?: return
-
-        val fileRef = storage.reference.child("profile/$uid.jpg")
-
-        fileRef.putFile(uri)
-            .addOnSuccessListener {
-                fileRef.downloadUrl.addOnSuccessListener { downloadUrl ->
-                    db.collection("User").document(email)
-                        .update("photoUrl", downloadUrl.toString())
-                }
-            }
-            .addOnFailureListener {
-                Toast.makeText(this, "Upload foto gagal", Toast.LENGTH_SHORT).show()
-            }
+    override fun onResume() {
+        super.onResume()
+        // Reload data when returning from edit screen
+        loadUserData()
     }
 }
