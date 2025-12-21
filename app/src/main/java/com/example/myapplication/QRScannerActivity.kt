@@ -1,7 +1,6 @@
 package com.example.myapplication
 
 import android.Manifest
-import android.content.DialogInterface
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.widget.Toast
@@ -12,19 +11,26 @@ import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
 import com.example.myapplication.databinding.ActivityQrScannerBinding
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.common.InputImage
+import java.text.SimpleDateFormat
+import java.util.*
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
-import com.google.firebase.auth.FirebaseAuth
+import java.io.File
+
 
 class QRScannerActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityQrScannerBinding
     private lateinit var cameraExecutor: ExecutorService
+
     private val db = FirebaseFirestore.getInstance()
-    private var dialogShown = false // cegah popup muncul berulang
+    private val auth = FirebaseAuth.getInstance()
+
+    private var dialogShown = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -33,10 +39,8 @@ class QRScannerActivity : AppCompatActivity() {
 
         cameraExecutor = Executors.newSingleThreadExecutor()
 
-        // Tombol kembali
         binding.btnBackHome.setOnClickListener { finish() }
 
-        // Cek izin kamera
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
             == PackageManager.PERMISSION_GRANTED
         ) {
@@ -46,22 +50,26 @@ class QRScannerActivity : AppCompatActivity() {
         }
     }
 
+    /* ================= CAMERA ================= */
+
     private fun startCamera() {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
+
         cameraProviderFuture.addListener({
+
             val cameraProvider = cameraProviderFuture.get()
 
-            val preview = Preview.Builder()
-                .build()
-                .also { it.setSurfaceProvider(binding.previewView.surfaceProvider) }
+            val preview = Preview.Builder().build().apply {
+                setSurfaceProvider(binding.previewView.surfaceProvider)
+            }
 
             val analyzer = ImageAnalysis.Builder()
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .build()
-                .also {
-                    it.setAnalyzer(cameraExecutor, QRAnalyzer { qrText ->
+                .apply {
+                    setAnalyzer(cameraExecutor, QRAnalyzer { qrText ->
                         runOnUiThread {
-                            if (!dialogShown) { // hanya sekali tiap scan
+                            if (!dialogShown) {
                                 dialogShown = true
                                 showStatusDialog(qrText)
                             }
@@ -69,94 +77,154 @@ class QRScannerActivity : AppCompatActivity() {
                     })
                 }
 
-            try {
-                cameraProvider.unbindAll()
-                cameraProvider.bindToLifecycle(
-                    this,
-                    CameraSelector.DEFAULT_BACK_CAMERA,
-                    preview,
-                    analyzer
-                )
-            } catch (e: Exception) {
-                e.printStackTrace()
-                Toast.makeText(this, "Gagal memulai kamera", Toast.LENGTH_SHORT).show()
-            }
+            cameraProvider.unbindAll()
+            cameraProvider.bindToLifecycle(
+                this,
+                CameraSelector.DEFAULT_BACK_CAMERA,
+                preview,
+                analyzer
+            )
 
         }, ContextCompat.getMainExecutor(this))
     }
 
-    // 🔹 Tampilkan popup konfirmasi status mesin
+    /* ================= DIALOG ================= */
+
     private fun showStatusDialog(credential: String) {
-        val builder = AlertDialog.Builder(this)
-        builder.setTitle("Ubah Status Mesin")
-        builder.setMessage("\nPilih status mesin :")
-
-        builder.setPositiveButton("Aktifkan") { dialog, _ ->
-            updateMachineStatus(credential, true)
-            dialog.dismiss()
-        }
-
-        builder.setNegativeButton("Nonaktifkan") { dialog, _ ->
-            updateMachineStatus(credential, false)
-            dialog.dismiss()
-        }
-
-        builder.setOnCancelListener {
-            dialogShown = false // agar bisa scan ulang kalau dibatalkan
-        }
-
-        val dialog = builder.create()
-        dialog.show()
+        AlertDialog.Builder(this)
+            .setTitle("Ubah Status Mesin")
+            .setMessage("Pilih status mesin:")
+            .setPositiveButton("Aktifkan") { d, _ ->
+                updateMachineStatus(credential, true)
+                d.dismiss()
+            }
+            .setNegativeButton("Nonaktifkan") { d, _ ->
+                updateMachineStatus(credential, false)
+                d.dismiss()
+            }
+            .setOnCancelListener { dialogShown = false }
+            .show()
     }
 
-    // 🔹 Update status mesin di Firestore
+    /* ================= UPDATE STATUS ================= */
+
     private fun updateMachineStatus(credential: String, status: Boolean) {
 
-        val uid = FirebaseAuth.getInstance().currentUser?.uid
-            ?: return Toast.makeText(this, "User tidak terautentikasi", Toast.LENGTH_SHORT).show()
+        val user = FirebaseAuth.getInstance().currentUser
+            ?: return Toast.makeText(this, "User tidak login", Toast.LENGTH_SHORT).show()
+
+        val uid = user.uid
 
         db.collection("Data_Incenerator")
             .whereEqualTo("Credential", credential)
             .get()
             .addOnSuccessListener { documents ->
+
                 if (documents.isEmpty) {
-                    Toast.makeText(this, "Mesin tidak ditemukan!", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, "Mesin tidak ditemukan", Toast.LENGTH_SHORT).show()
                     dialogShown = false
                     return@addOnSuccessListener
                 }
 
                 for (doc in documents) {
 
-                    val updateData = mapOf(
-                        "Status" to status,
-                        "userId" to uid,
-                        "updatedAt" to System.currentTimeMillis()
-                    )
+                    val machineName = doc.id
 
-                    db.collection("Data_Incenerator")
-                        .document(doc.id)
-                        .update(updateData)
-                        .addOnSuccessListener {
-                            val state = if (status) "Aktif" else "Non Aktif"
-                            Toast.makeText(
-                                this,
-                                "Status mesin '${doc.id}' diubah ke $state",
-                                Toast.LENGTH_SHORT
-                            ).show()
-                            finish()
-                        }
-                        .addOnFailureListener {
-                            Toast.makeText(this, "Gagal mengubah status", Toast.LENGTH_SHORT).show()
-                            dialogShown = false
+                    db.collection("users")
+                        .document(uid)
+                        .get()
+                        .addOnSuccessListener { userDoc ->
+
+                            val userName =
+                                userDoc.getString("name") ?: user.email ?: "Unknown"
+
+                            val updateData = mapOf(
+                                "Status" to status,
+                                "userId" to uid,
+                                "updatedAt" to System.currentTimeMillis()
+                            )
+
+                            db.collection("Data_Incenerator")
+                                .document(machineName)
+                                .update(updateData)
+                                .addOnSuccessListener {
+
+                                    // 🔥 TULIS CSV REALTIME
+                                    appendLogToCSV(
+                                        machineName,
+                                        status,
+                                        userName
+                                    )
+
+                                    Toast.makeText(
+                                        this,
+                                        "Status $machineName berhasil diubah",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+
+                                    finish()
+                                }
                         }
                 }
             }
-            .addOnFailureListener {
-                Toast.makeText(this, "Gagal membaca data mesin", Toast.LENGTH_SHORT).show()
-                dialogShown = false
+    }
+
+    private fun appendLogToCSV(
+        machineName: String,
+        status: Boolean,
+        userName: String
+    ) {
+        val file = File(filesDir, "data_mesin.csv")
+
+        // Header (hanya sekali)
+        if (!file.exists()) {
+            file.writeText("Tanggal,Nama Mesin,Status,User\n")
+        }
+
+        val sdf = java.text.SimpleDateFormat(
+            "dd-MM-yyyy HH:mm",
+            java.util.Locale.getDefault()
+        )
+        val dateTime = sdf.format(java.util.Date())
+
+        val statusText = if (status) "ON" else "OFF"
+
+        val line = "$dateTime,$machineName,$statusText,$userName\n"
+        file.appendText(line)
+    }
+
+
+
+    /* ================= SAVE LOG ================= */
+
+    private fun saveMachineLog(machineName: String, status: Boolean, userId: String) {
+
+        val sdf = SimpleDateFormat("dd-MM-yyyy HH:mm", Locale.getDefault())
+        val dateTime = sdf.format(Date())
+
+        db.collection("users")
+            .document(userId)
+            .get()
+            .addOnSuccessListener { userDoc ->
+
+                val userName = userDoc.getString("name") ?: "Unknown"
+                val statusText = if (status) "ON" else "OFF"
+
+                val logData = hashMapOf(
+                    "machineName" to machineName,
+                    "status" to statusText,
+                    "userId" to userId,
+                    "userName" to userName,
+                    "dateTime" to dateTime,
+                    "timestamp" to System.currentTimeMillis()
+                )
+
+                db.collection("machine_logs")
+                    .add(logData)
             }
     }
 
+    /* ================= PERMISSION ================= */
 
     private val requestPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -170,28 +238,35 @@ class QRScannerActivity : AppCompatActivity() {
     }
 }
 
-// 🔹 Analyzer QR Code
-private class QRAnalyzer(private val onQRCodeFound: (String) -> Unit) : ImageAnalysis.Analyzer {
+/* ================= QR ANALYZER ================= */
+
+private class QRAnalyzer(
+    private val onQRCodeFound: (String) -> Unit
+) : ImageAnalysis.Analyzer {
+
     private val scanner = BarcodeScanning.getClient()
 
-    @androidx.annotation.OptIn(androidx.camera.core.ExperimentalGetImage::class)
+    @OptIn(ExperimentalGetImage::class)
     override fun analyze(imageProxy: ImageProxy) {
+
         val mediaImage = imageProxy.image ?: run {
             imageProxy.close()
             return
         }
 
-        val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
+        val image = InputImage.fromMediaImage(
+            mediaImage,
+            imageProxy.imageInfo.rotationDegrees
+        )
+
         scanner.process(image)
             .addOnSuccessListener { barcodes ->
-                for (barcode in barcodes) {
-                    barcode.rawValue?.let {
-                        onQRCodeFound(it)
-                        return@addOnSuccessListener
-                    }
+                barcodes.firstOrNull()?.rawValue?.let {
+                    onQRCodeFound(it)
                 }
             }
-            .addOnFailureListener { it.printStackTrace() }
-            .addOnCompleteListener { imageProxy.close() }
+            .addOnCompleteListener {
+                imageProxy.close()
+            }
     }
 }

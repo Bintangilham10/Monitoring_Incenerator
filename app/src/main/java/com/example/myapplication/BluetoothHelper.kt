@@ -19,14 +19,16 @@ class BluetoothHelper(
     private val activity: Activity,
     private val listener: Listener
 ) {
+
     companion object {
         private const val TAG = "BluetoothHelper"
-        private val SPP_UUID: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
+        private val SPP_UUID: UUID =
+            UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
         const val REQ_PERMISSION_CODE = 1001
     }
 
     interface Listener {
-        fun onPermissionRequired(permissions: Array<String>, requestCode: Int = REQ_PERMISSION_CODE)
+        fun onPermissionRequired(permissions: Array<String>, requestCode: Int)
         fun onPairedDevices(devices: List<BluetoothDevice>)
         fun onConnecting(device: BluetoothDevice)
         fun onConnected(device: BluetoothDevice)
@@ -35,63 +37,61 @@ class BluetoothHelper(
         fun onDataReceived(text: String)
     }
 
-    private val bluetoothAdapter: BluetoothAdapter? = BluetoothAdapter.getDefaultAdapter()
+    private val bluetoothAdapter: BluetoothAdapter? =
+        BluetoothAdapter.getDefaultAdapter()
+
     private var socket: BluetoothSocket? = null
-    private var readThreadRunning = false
     private var inStream: InputStream? = null
     private var outStream: OutputStream? = null
-    private var connectedDevice: BluetoothDevice? = null
+    private var readThreadRunning = false
 
+    /* =========================================================
+       PERMISSION HELPERS
+    ========================================================= */
 
-    // ---------------------------------------------------------
-    // PERMISSION HELPERS
-    // ---------------------------------------------------------
+    private fun hasBtConnectPermission(): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+                ActivityCompat.checkSelfPermission(
+                    activity,
+                    Manifest.permission.BLUETOOTH_CONNECT
+                ) == PackageManager.PERMISSION_GRANTED
 
-    private fun hasBtConnectPermission(): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            ActivityCompat.checkSelfPermission(
-                activity, Manifest.permission.BLUETOOTH_CONNECT
-            ) == PackageManager.PERMISSION_GRANTED
-        } else true
-    }
-
-    private fun hasBtScanPermission(): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            ActivityCompat.checkSelfPermission(
-                activity, Manifest.permission.BLUETOOTH_SCAN
-            ) == PackageManager.PERMISSION_GRANTED
-        } else true
-    }
+    private fun hasBtScanPermission(): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+                ActivityCompat.checkSelfPermission(
+                    activity,
+                    Manifest.permission.BLUETOOTH_SCAN
+                ) == PackageManager.PERMISSION_GRANTED
 
     fun ensurePermissions() {
-        val permList = mutableListOf<String>()
+        val permissions = mutableListOf<String>()
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            if (!hasBtConnectPermission()) permList.add(Manifest.permission.BLUETOOTH_CONNECT)
-            if (!hasBtScanPermission()) permList.add(Manifest.permission.BLUETOOTH_SCAN)
+            if (!hasBtConnectPermission())
+                permissions.add(Manifest.permission.BLUETOOTH_CONNECT)
+            if (!hasBtScanPermission())
+                permissions.add(Manifest.permission.BLUETOOTH_SCAN)
         } else {
-            if (ActivityCompat.checkSelfPermission(activity, Manifest.permission.BLUETOOTH)
-                != PackageManager.PERMISSION_GRANTED
-            ) permList.add(Manifest.permission.BLUETOOTH)
-
-            if (ActivityCompat.checkSelfPermission(activity, Manifest.permission.BLUETOOTH_ADMIN)
-                != PackageManager.PERMISSION_GRANTED
-            ) permList.add(Manifest.permission.BLUETOOTH_ADMIN)
-
-            if (ActivityCompat.checkSelfPermission(activity, Manifest.permission.ACCESS_FINE_LOCATION)
-                != PackageManager.PERMISSION_GRANTED
-            ) permList.add(Manifest.permission.ACCESS_FINE_LOCATION)
+            if (ActivityCompat.checkSelfPermission(
+                    activity,
+                    Manifest.permission.ACCESS_FINE_LOCATION
+                ) != PackageManager.PERMISSION_GRANTED
+            ) {
+                permissions.add(Manifest.permission.ACCESS_FINE_LOCATION)
+            }
         }
 
-        if (permList.isNotEmpty()) {
-            listener.onPermissionRequired(permList.toTypedArray(), REQ_PERMISSION_CODE)
+        if (permissions.isNotEmpty()) {
+            listener.onPermissionRequired(
+                permissions.toTypedArray(),
+                REQ_PERMISSION_CODE
+            )
         }
     }
 
-
-    // ---------------------------------------------------------
-    // LIST PAIRED DEVICES (FIX WARNING)
-    // ---------------------------------------------------------
+    /* =========================================================
+       LIST PAIRED DEVICES
+    ========================================================= */
 
     fun listPairedDevices() {
         val adapter = bluetoothAdapter ?: run {
@@ -105,17 +105,16 @@ class BluetoothHelper(
         }
 
         try {
-            val paired = adapter.bondedDevices?.toList() ?: emptyList()
-            listener.onPairedDevices(paired)
+            val devices = adapter.bondedDevices?.toList() ?: emptyList()
+            listener.onPairedDevices(devices)
         } catch (e: SecurityException) {
-            listener.onConnectionFailed("Akses perangkat yang terpasang ditolak oleh sistem.")
+            listener.onConnectionFailed("Akses Bluetooth ditolak sistem")
         }
     }
 
-
-    // ---------------------------------------------------------
-    // CONNECT BY MAC
-    // ---------------------------------------------------------
+    /* =========================================================
+       CONNECT BY MAC ADDRESS
+    ========================================================= */
 
     fun connect(macAddress: String) {
         val adapter = bluetoothAdapter ?: run {
@@ -129,79 +128,71 @@ class BluetoothHelper(
         }
 
         if (!hasBtConnectPermission()) {
-            listener.onConnectionFailed("Izin BLUETOOTH_CONNECT belum diberikan")
+            listener.onConnectionFailed("Permission BLUETOOTH_CONNECT belum diberikan")
             return
         }
 
         val device = try {
             adapter.getRemoteDevice(macAddress)
+        } catch (e: IllegalArgumentException) {
+            listener.onConnectionFailed("MAC Address tidak valid")
+            return
         } catch (e: SecurityException) {
-            listener.onConnectionFailed("Tidak boleh akses perangkat Bluetooth")
+            listener.onConnectionFailed("Akses Bluetooth ditolak")
             return
         }
 
         connectDevice(device)
     }
 
-
-    // ---------------------------------------------------------
-    // CONNECT TO DEVICE (FIX WARNING cancelDiscovery)
-    // ---------------------------------------------------------
+    /* =========================================================
+       CONNECT TO DEVICE
+    ========================================================= */
 
     private fun connectDevice(device: BluetoothDevice) {
-        if (!hasBtConnectPermission()) {
-            listener.onConnectionFailed("BLUETOOTH_CONNECT permission belum diberikan")
-            return
-        }
-
         listener.onConnecting(device)
 
         thread {
             try {
                 socket?.close()
-            } catch (_: Exception) {}
-
-            try {
-                val tmp = device.createRfcommSocketToServiceRecord(SPP_UUID)
 
                 if (hasBtScanPermission()) {
                     try {
                         bluetoothAdapter?.cancelDiscovery()
-                    } catch (e: SecurityException) {
-                        Log.e(TAG, "cancelDiscovery ditolak: ${e.message}")
-                    }
+                    } catch (_: SecurityException) {}
                 }
 
-                tmp.connect()
+                val tmpSocket =
+                    device.createRfcommSocketToServiceRecord(SPP_UUID)
 
-                socket = tmp
-                inStream = tmp.inputStream
-                outStream = tmp.outputStream
-                connectedDevice = device
+                tmpSocket.connect()
 
-                activity.runOnUiThread { listener.onConnected(device) }
+                socket = tmpSocket
+                inStream = tmpSocket.inputStream
+                outStream = tmpSocket.outputStream
+
+                activity.runOnUiThread {
+                    listener.onConnected(device)
+                }
 
                 startReadingLoop()
 
             } catch (e: IOException) {
-                Log.e(TAG, "connectDevice error: ${e.message}")
+                Log.e(TAG, "Connect failed", e)
                 activity.runOnUiThread {
-                    listener.onConnectionFailed("Gagal terhubung: ${e.message}")
+                    listener.onConnectionFailed("Gagal terhubung")
                 }
-                try { socket?.close() } catch (_: Exception) {}
-                socket = null
+                disconnect()
             }
         }
     }
 
-
-    // ---------------------------------------------------------
-    // READ LOOP
-    // ---------------------------------------------------------
+    /* =========================================================
+       READ DATA LOOP
+    ========================================================= */
 
     private fun startReadingLoop() {
-        if (inStream == null) return
-
+        val input = inStream ?: return
         readThreadRunning = true
 
         thread {
@@ -210,64 +201,62 @@ class BluetoothHelper(
 
             while (readThreadRunning) {
                 try {
-                    val bytes = inStream?.read(buffer) ?: -1
-                    if (bytes > 0) {
-                        val text = String(buffer, 0, bytes)
-                        sb.append(text)
+                    val bytes = input.read(buffer)
+                    if (bytes <= 0) break
 
-                        var newLine = sb.indexOf("\n")
-                        while (newLine != -1) {
-                            val line = sb.substring(0, newLine).trim()
-                            if (line.isNotEmpty()) {
-                                activity.runOnUiThread {
-                                    listener.onDataReceived(line)
-                                }
+                    sb.append(String(buffer, 0, bytes))
+                    var idx = sb.indexOf("\n")
+
+                    while (idx != -1) {
+                        val line = sb.substring(0, idx).trim()
+                        sb.delete(0, idx + 1)
+                        if (line.isNotEmpty()) {
+                            activity.runOnUiThread {
+                                listener.onDataReceived(line)
                             }
-                            sb.delete(0, newLine + 1)
-                            newLine = sb.indexOf("\n")
                         }
-                    } else break
-
+                        idx = sb.indexOf("\n")
+                    }
                 } catch (e: IOException) {
-                    Log.e(TAG, "read error: ${e.message}")
                     break
                 }
             }
-
             disconnect()
         }
     }
 
-
-    // ---------------------------------------------------------
-    // SEND DATA
-    // ---------------------------------------------------------
+    /* =========================================================
+       SEND DATA (OPTIONAL)
+    ========================================================= */
 
     fun write(text: String) {
         try {
             outStream?.write(text.toByteArray())
             outStream?.flush()
-        } catch (e: Exception) {
-            Log.e(TAG, "write failed: ${e.message}")
+        } catch (e: IOException) {
+            Log.e(TAG, "Write failed", e)
         }
     }
 
-
-    // ---------------------------------------------------------
-    // DISCONNECT
-    // ---------------------------------------------------------
+    /* =========================================================
+       DISCONNECT
+    ========================================================= */
 
     fun disconnect() {
         readThreadRunning = false
         try { inStream?.close() } catch (_: Exception) {}
         try { outStream?.close() } catch (_: Exception) {}
         try { socket?.close() } catch (_: Exception) {}
-        socket = null
-        connectedDevice = null
 
-        activity.runOnUiThread { listener.onDisconnected() }
+        socket = null
+        inStream = null
+        outStream = null
+
+        activity.runOnUiThread {
+            listener.onDisconnected()
+        }
     }
 
     fun isConnected(): Boolean =
-        socket != null && socket!!.isConnected
+        socket?.isConnected == true
 }

@@ -1,14 +1,11 @@
 package com.example.myapplication
 
-import android.app.Activity
 import android.content.Intent
-import android.net.Uri
 import android.os.Bundle
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.storage.FirebaseStorage
 import com.squareup.picasso.Picasso
 import java.text.SimpleDateFormat
 import java.util.*
@@ -16,94 +13,107 @@ import java.util.*
 class UserActivity : AppCompatActivity() {
 
     private lateinit var imgProfile: ImageView
-    private lateinit var edtName: EditText
+    private lateinit var tvFullName: TextView
+    private lateinit var tvUserId: TextView
+    private lateinit var tvLastLogin: TextView
     private lateinit var tvCreatedAt: TextView
+    private lateinit var btnEditProfile: Button
 
-    private val PICK_IMAGE = 100
-    private var selectedImage: Uri? = null
+    private val auth = FirebaseAuth.getInstance()
+    private val user = auth.currentUser
+    private val userEmail = user?.email
 
-    private val user = FirebaseAuth.getInstance().currentUser
     private val db = FirebaseFirestore.getInstance()
-    private val storage = FirebaseStorage.getInstance()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_user)
 
         imgProfile = findViewById(R.id.imgProfile)
-        edtName = findViewById(R.id.edtName)
+        tvFullName = findViewById(R.id.tvFullName)
+        tvUserId = findViewById(R.id.tvUserId)
+        tvLastLogin = findViewById(R.id.tvLastLogin)
         tvCreatedAt = findViewById(R.id.tvCreatedAt)
+        btnEditProfile = findViewById(R.id.btnEditProfile)
 
-        val btnPhoto = findViewById<Button>(R.id.btnUploadPhoto)
-        val btnSaveName = findViewById<Button>(R.id.btnSaveName)
+        if (user == null || userEmail == null) {
+            Toast.makeText(this, "User belum login", Toast.LENGTH_SHORT).show()
+            finish()
+            return
+        }
 
         loadUserData()
 
-        btnPhoto.setOnClickListener { openGallery() }
-        btnSaveName.setOnClickListener { saveName() }
+        btnEditProfile.setOnClickListener {
+            // Navigate to edit profile screen (you'll need to create this)
+            val intent = Intent(this, EditProfileActivity::class.java)
+            startActivity(intent)
+        }
     }
 
+    /* ======================================
+                LOAD USER DATA
+       ====================================== */
     private fun loadUserData() {
-        val uid = user?.uid ?: return
+        val email = userEmail ?: return
 
-        db.collection("users").document(uid)
+        db.collection("User").document(email)
             .get()
             .addOnSuccessListener { doc ->
                 if (doc.exists()) {
-                    edtName.setText(doc.getString("name") ?: "")
+                    val username = doc.getString("username") ?: "User Name"
+                    tvFullName.text = username
 
-                    val url = doc.getString("photoUrl")
-                    if (!url.isNullOrEmpty()) {
-                        Picasso.get().load(url).into(imgProfile)
+                    val photoUrl = doc.getString("photoUrl")
+                    if (!photoUrl.isNullOrEmpty()) {
+                        Picasso.get().load(photoUrl).into(imgProfile)
                     }
+                } else {
+                    createInitialUserData()
                 }
             }
 
-        val creation = user?.metadata?.creationTimestamp ?: 0L
-        val date = SimpleDateFormat("dd MMMM yyyy", Locale.getDefault())
-            .format(Date(creation))
+        // Set User ID (email)
+        tvUserId.text = email
 
-        tvCreatedAt.text = "Tanggal dibuat: $date"
+        // Set Last Login (current time)
+        val currentTime = SimpleDateFormat(
+            "yyyy-MM-dd HH:mm",
+            Locale.getDefault()
+        ).format(Date())
+        tvLastLogin.text = currentTime
+
+        // Set Account Created Date
+        val creationTime = user?.metadata?.creationTimestamp ?: return
+        val date = SimpleDateFormat(
+            "MMMM dd, yyyy",
+            Locale.getDefault()
+        ).format(Date(creationTime))
+        tvCreatedAt.text = date
     }
 
-    private fun openGallery() {
-        val intent = Intent(Intent.ACTION_PICK)
-        intent.type = "image/*"
-        startActivityForResult(intent, PICK_IMAGE)
-    }
+    /* ======================================
+           CREATE USER FIRST TIME
+       ====================================== */
+    private fun createInitialUserData() {
+        val email = userEmail ?: return
 
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
+        val data = hashMapOf(
+            "email" to email,
+            "username" to "User Name",
+            "photoUrl" to "",
+            "createdAt" to Date()
+        )
 
-        if (requestCode == PICK_IMAGE && resultCode == Activity.RESULT_OK) {
-            selectedImage = data?.data
-            imgProfile.setImageURI(selectedImage)
-            uploadImage()
-        }
-    }
-
-    private fun uploadImage() {
-        val uid = user?.uid ?: return
-        val fileRef = storage.reference.child("profile/$uid.jpg")
-
-        selectedImage?.let { uri ->
-            fileRef.putFile(uri).addOnSuccessListener {
-                fileRef.downloadUrl.addOnSuccessListener { downloadUrl ->
-                    db.collection("users").document(uid)
-                        .update("photoUrl", downloadUrl.toString())
-                }
-            }
-        }
-    }
-
-    private fun saveName() {
-        val uid = user?.uid ?: return
-        val name = edtName.text.toString()
-
-        db.collection("users").document(uid)
-            .update("name", name)
+        db.collection("User").document(email).set(data)
             .addOnSuccessListener {
-                Toast.makeText(this, "Nama berhasil disimpan", Toast.LENGTH_SHORT).show()
+                loadUserData() // Reload after creating
             }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Reload data when returning from edit screen
+        loadUserData()
     }
 }
